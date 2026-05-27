@@ -1,11 +1,165 @@
 ﻿<!DOCTYPE html>
-<html>
+<html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <title>Rimeks Inventory</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🔍 Поиск по складу — Rimeks</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
+    .container { max-width: 1200px; margin: 0 auto; background: white; border-radius: 12px; padding: 24px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+    h1 { margin: 0 0 24px 0; color: #1a1a1a; font-size: 24px; }
+    .search-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 24px; }
+    .search-form input { padding: 10px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; }
+    .search-form input:focus { outline: none; border-color: #007bff; box-shadow: 0 0 0 3px rgba(0,123,255,0.1); }
+    .search-form button { padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 6px; font-size: 14px; font-weight: 500; cursor: pointer; transition: background 0.2s; }
+    .search-form button:hover { background: #0056b3; }
+    .search-form button:disabled { background: #ccc; cursor: not-allowed; }
+    .results { margin-top: 24px; }
+    .results h2 { margin: 0 0 12px 0; font-size: 18px; color: #333; }
+    .results table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    .results th, .results td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #eee; }
+    .results th { background: #f8f9fa; font-weight: 600; color: #555; }
+    .results tr:hover { background: #f8f9fa; }
+    .empty { text-align: center; padding: 40px; color: #666; }
+    .loading { text-align: center; padding: 20px; color: #666; }
+    .error { padding: 12px; background: #fee; border: 1px solid #fcc; border-radius: 6px; color: #c00; margin-bottom: 12px; }
+    .badge { display: inline-block; padding: 2px 8px; background: #e9ecef; border-radius: 4px; font-size: 12px; color: #555; }
+  </style>
 </head>
 <body>
-  <h1>Система поиска товаров</h1>
-  <p>Загрузка...</p>
+  <div class="container">
+    <h1>🔍 Поиск по складу — Rimeks</h1>
+    
+    <form class="search-form" id="searchForm">
+      <input type="text" id="code" name="code" placeholder="Код товара (например, 12345)">
+      <input type="text" id="name" name="name" placeholder="Название товара">
+      <input type="text" id="address" name="address" placeholder="Адрес (например, А-01)">
+      <button type="submit" id="searchBtn">🔍 Найти</button>
+    </form>
+
+    <div id="error" class="error" style="display:none;"></div>
+    
+    <div class="results" id="results" style="display:none;">
+      <h2>Результаты: <span id="count">0</span></h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Товар</th>
+            <th>Код</th>
+            <th>Адрес</th>
+            <th>Склад</th>
+            <th>Кол-во</th>
+            <th>Г/В</th>
+          </tr>
+        </thead>
+        <tbody id="resultsBody"></tbody>
+      </table>
+    </div>
+    
+    <div id="loading" class="loading" style="display:none;">⏳ Загрузка...</div>
+    <div id="empty" class="empty" style="display:none;">📭 Ничего не найдено</div>
+  </div>
+
+  <script>
+    const form = document.getElementById('searchForm');
+    const results = document.getElementById('results');
+    const resultsBody = document.getElementById('resultsBody');
+    const count = document.getElementById('count');
+    const loading = document.getElementById('loading');
+    const empty = document.getElementById('empty');
+    const error = document.getElementById('error');
+    const searchBtn = document.getElementById('searchBtn');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      // Скрываем старые результаты
+      results.style.display = 'none';
+      empty.style.display = 'none';
+      error.style.display = 'none';
+      loading.style.display = 'block';
+      searchBtn.disabled = true;
+
+      // Собираем данные
+      const code = document.getElementById('code').value.trim();
+      const name = document.getElementById('name').value.trim();
+      const address = document.getElementById('address').value.trim();
+
+      if (!code && !name && !address) {
+        showError('Введите хотя бы один параметр для поиска');
+        return;
+      }
+
+      try {
+        // Отправляем запрос к API
+        const response = await fetch('/api/search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code, name, address })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || 'Ошибка сервера');
+        }
+
+        // Показываем результаты
+        showResults(data);
+
+      } catch (err) {
+        showError(err.message);
+      } finally {
+        loading.style.display = 'none';
+        searchBtn.disabled = false;
+      }
+    });
+
+    function showResults(data) {
+      if (!data || data.length === 0) {
+        empty.style.display = 'block';
+        return;
+      }
+
+      resultsBody.innerHTML = '';
+      
+      data.forEach(item => {
+        const row = document.createElement('tr');
+        
+        const productName = item.product?.name || '—';
+        const productCode = item.product?.code || '—';
+        const addressCode = item.address?.code || item.address || '—';
+        const warehouse = item.warehouse?.name || '—';
+        const quantity = item.quantity || 0;
+        const productionDate = item.production_date || '—';
+
+        row.innerHTML = `
+          <td><strong>${escapeHtml(productName)}</strong></td>
+          <td><span class="badge">${escapeHtml(productCode)}</span></td>
+          <td>${escapeHtml(addressCode)}</td>
+          <td>${escapeHtml(warehouse)}</td>
+          <td><strong>${quantity}</strong></td>
+          <td>${escapeHtml(productionDate)}</td>
+        `;
+        
+        resultsBody.appendChild(row);
+      });
+
+      count.textContent = data.length;
+      results.style.display = 'block';
+    }
+
+    function showError(message) {
+      error.textContent = '❌ ' + message;
+      error.style.display = 'block';
+    }
+
+    function escapeHtml(text) {
+      if (!text) return '';
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+  </script>
 </body>
 </html>
